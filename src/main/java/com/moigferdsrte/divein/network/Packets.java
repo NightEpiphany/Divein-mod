@@ -5,13 +5,13 @@ import com.moigferdsrte.divein.extension.AnimationEffect;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.NotNull;
 
 public class Packets {
     public record AnimationPublish(int playerId, AnimationEffect.Visuals visuals, Vec3 velocity) implements CustomPacketPayload {
-        public static final CustomPacketPayload.Type<AnimationPublish> TYPE = new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(Divein.MOD_ID, "publish"));
+        public static final CustomPacketPayload.Type<AnimationPublish> TYPE = new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath(Divein.MOD_ID, "publish"));
 
         public static final StreamCodec<FriendlyByteBuf, AnimationPublish> CODEC = StreamCodec.ofMember(AnimationPublish::write, AnimationPublish::read);
         public static AnimationPublish read(FriendlyByteBuf buffer) {
@@ -40,7 +40,7 @@ public class Packets {
     }
     public record DiveAnimation(int playerId, AnimationEffect.Visuals visuals, Vec3 velocity) implements CustomPacketPayload {
 
-        public static final CustomPacketPayload.Type<DiveAnimation> TYPE = new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(Divein.MOD_ID, "animation"));
+        public static final CustomPacketPayload.Type<DiveAnimation> TYPE = new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath(Divein.MOD_ID, "animation"));
 
         public static final StreamCodec<FriendlyByteBuf, DiveAnimation> CODEC = StreamCodec.ofMember(DiveAnimation::write, DiveAnimation::read);
 

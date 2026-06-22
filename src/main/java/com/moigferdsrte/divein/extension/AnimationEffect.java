@@ -11,6 +11,6 @@ public record AnimationEffect() {
     }
 
     public static void playVisuals(Visuals visuals, Player player, Vec3 direction) {
-        ((AnimatablePlayer)player).divein_1_21_1$playDiveAnimation(visuals.animationName(), direction);
+        ((AnimatablePlayer)player).divein$playDiveAnimation(visuals.animationName(), direction);
     }
 }

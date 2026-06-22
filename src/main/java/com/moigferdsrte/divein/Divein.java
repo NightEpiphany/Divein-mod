@@ -4,7 +4,6 @@ import com.moigferdsrte.divein.config.DiveinConfig;
 import com.moigferdsrte.divein.event.DiveinEvent;
 import com.moigferdsrte.divein.network.Packets;
 import com.moigferdsrte.divein.network.ServerNetwork;
-import dev.kosmx.playerAnim.api.layered.KeyframeAnimationPlayer;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigHolder;
 import me.shedaniel.autoconfig.serializer.GsonConfigSerializer;
@@ -15,6 +14,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.material.Fluids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +23,6 @@ public class Divein implements ModInitializer {
 	public static final String MOD_ID = "divein";
 
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
-    public static boolean hasTriggeredDive = false;
 
     public static ConfigHolder<DiveinConfig> configHolder;
     public static DiveinConfig config;
@@ -31,8 +30,8 @@ public class Divein implements ModInitializer {
 	@Override
 	public void onInitialize() {
 
-        PayloadTypeRegistry.playC2S().register(Packets.AnimationPublish.TYPE, Packets.AnimationPublish.CODEC);
-        PayloadTypeRegistry.playS2C().register(Packets.DiveAnimation.TYPE, Packets.DiveAnimation.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(Packets.AnimationPublish.TYPE, Packets.AnimationPublish.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(Packets.DiveAnimation.TYPE, Packets.DiveAnimation.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(Packets.AnimationPublish.TYPE, (packet, context) -> ServerNetwork.handleDivePublish(packet, context.server(), context.player()));
 
@@ -41,47 +40,14 @@ public class Divein implements ModInitializer {
         config = configHolder.getConfig();
 
         DiveinEvent.DIVEIN_WATER_EVENT.register((player, level, controller) -> {
-            if (controller.getAnimation() == null) return;
+            if (controller == null) return;
             if (player.isFallFlying() || (player.onGround() && !player.isInWater()) || player.isSwimming()) {
-                if (controller.getAnimation() instanceof KeyframeAnimationPlayer keyframeAnimationPlayer) {
-                    keyframeAnimationPlayer.stop();
-                }
+                controller.stop();
             }
         });
 
 		LOGGER.info("Divein!");
 	}
-
-    @Deprecated
-    public void eventHook() {
-        DiveinEvent.DIVEIN_WATER_EVENT.register((player, level, c) -> {
-            if (!player.level().isClientSide()) return;
-            float sensitivity = Divein.config.triggerSensitivity;
-            if (sensitivity < 0) sensitivity = 0;
-            if (sensitivity > 1) sensitivity = 1;
-
-            boolean isFalling = player.getDeltaMovement().y < sensitivity - 1.0f
-                    && !player.onGround()
-                    && level.getBlockState(player.blockPosition().below()).is(BlockTags.AIR)
-                    && !player.getAbilities().flying;
-
-            boolean isWaterBelow = checkWaterBelow(player, Divein.config.fluidLevelDetectHeight);
-            boolean isLavaBelow = checkLavaBelow(player, Divein.config.fluidLevelDetectHeight * 2);
-
-            if (isFalling && !hasTriggeredDive) {
-                hasTriggeredDive = true;
-                if (isWaterBelow) {
-                    DiveinClient.playDiveAnimation(true);
-                }else if (isLavaBelow) {
-                    DiveinClient.playDiveAnimation(false);
-                }
-            }
-
-            if (!isFalling || !isWaterBelow || !isLavaBelow) {
-                hasTriggeredDive = false;
-            }
-        });
-    }
 
     public static boolean checkWaterBelow(Player player, int blocks) {
         if (player.isInWater()) return true;

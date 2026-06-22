@@ -5,23 +5,23 @@ import com.moigferdsrte.divein.event.DiveinEvent;
 import com.moigferdsrte.divein.extension.AdjustmentModifier;
 import com.moigferdsrte.divein.extension.AnimatablePlayer;
 import com.mojang.authlib.GameProfile;
-import dev.kosmx.playerAnim.api.firstPerson.FirstPersonConfiguration;
-import dev.kosmx.playerAnim.api.firstPerson.FirstPersonMode;
-import dev.kosmx.playerAnim.api.layered.KeyframeAnimationPlayer;
-import dev.kosmx.playerAnim.api.layered.ModifierLayer;
-import dev.kosmx.playerAnim.api.layered.modifier.AbstractFadeModifier;
-import dev.kosmx.playerAnim.api.layered.modifier.SpeedModifier;
-import dev.kosmx.playerAnim.core.data.KeyframeAnimation;
-import dev.kosmx.playerAnim.core.util.Vec3f;
-import dev.kosmx.playerAnim.impl.IAnimatedPlayer;
-import dev.kosmx.playerAnim.minecraftApi.PlayerAnimationRegistry;
-import net.minecraft.client.multiplayer.ClientLevel;
+import com.zigythebird.playeranim.animation.PlayerAnimationController;
+import com.zigythebird.playeranim.api.PlayerAnimationAccess;
+import com.zigythebird.playeranimcore.animation.layered.modifier.AbstractFadeModifier;
+import com.zigythebird.playeranimcore.animation.layered.modifier.SpeedModifier;
+import com.zigythebird.playeranimcore.api.firstPerson.FirstPersonConfiguration;
+import com.zigythebird.playeranimcore.api.firstPerson.FirstPersonMode;
+import com.zigythebird.playeranimcore.math.Vec3f;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.entity.ClientAvatarEntity;
 import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.core.BlockPos;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+import org.spongepowered.asm.mixin.Implements;
+import org.spongepowered.asm.mixin.Interface;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -34,8 +34,11 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.*;
 
+@Implements(
+        @Interface(iface = AnimatablePlayer.class, prefix = "divein_1_21_1$")
+)
 @Mixin(AbstractClientPlayer.class)
-public abstract class AbstractClientPlayerMixin extends Player implements AnimatablePlayer {
+public abstract class AbstractClientPlayerMixin extends Player implements AnimatablePlayer, ClientAvatarEntity {
 
     @Unique
     private static final Map<UUID, Boolean> playerAnimationStates = new HashMap<>();
@@ -43,48 +46,43 @@ public abstract class AbstractClientPlayerMixin extends Player implements Animat
     @Unique
     private final ExecutorService asyncPool = Executors.newSingleThreadExecutor();
 
+    @Nullable
     @Unique
-    private final ModifierLayer<KeyframeAnimationPlayer> base = new ModifierLayer<>(null);
+    PlayerAnimationController controller = null;
 
     @Unique
-    private final SpeedModifier speedModifier = new SpeedModifier();
+    private final SpeedModifier speedModifier = new SpeedModifier(Divein.config.speedModifier);
 
     @Unique
     private Vec3 divingDirection;
 
-    public AbstractClientPlayerMixin(Level level, BlockPos blockPos, float f, GameProfile gameProfile) {
-        super(level, blockPos, f, gameProfile);
+    public AbstractClientPlayerMixin(Level level, GameProfile gameProfile) {
+        super(level, gameProfile);
     }
 
     @DiveinEvent.SyncForServer
     @Override
-    public void divein_1_21_1$playDiveAnimation(String animationName, Vec3 direction) {
-
+    public void divein$playDiveAnimation(String animationName, Vec3 direction) {
+        if (Minecraft.getInstance().player == null) return;
+        AbstractClientPlayer abstractClientPlayer = (AbstractClientPlayer) (Object) this;
+        Identifier loc = Identifier.fromNamespaceAndPath(Divein.MOD_ID, animationName);
         if (playerAnimationStates.getOrDefault(uuid, false)) return;
         playerAnimationStates.put(uuid, true);
+        controller = (PlayerAnimationController) PlayerAnimationAccess
+                .getPlayerAnimationLayer(abstractClientPlayer, loc);
+        if (controller == null) return;
         try {
-            KeyframeAnimation animation = (KeyframeAnimation) PlayerAnimationRegistry.getAnimation(ResourceLocation.fromNamespaceAndPath(Divein.MOD_ID, animationName));
-
-            KeyframeAnimation.AnimationBuilder copy;
-            if (animation == null)
-                return;
-            copy = animation.mutableCopy();
-
-            divingDirection = direction;
-
-            speedModifier.speed = Divein.config.speedModifier;
-            base.replaceAnimationWithFade(
-                    AbstractFadeModifier.functionalFadeIn(100, (modelName, type, value) -> value),
-                    new KeyframeAnimationPlayer(copy.build())
-                            .setFirstPersonMode(FirstPersonMode.DISABLED)
-                            .setFirstPersonConfiguration(new FirstPersonConfiguration()
-                                    .setShowRightArm(true)
-                                    .setShowLeftArm(true)
-                                    .setShowLeftItem(false)));
-
+            controller.setFirstPersonConfiguration(new FirstPersonConfiguration()
+                    .setShowRightArm(true)
+                    .setShowLeftArm(true)
+                    .setShowLeftItem(false));
+            if (!controller.getModifiers().contains(speedModifier))
+                controller.addModifier(speedModifier, 0);
+            controller.setFirstPersonMode(FirstPersonMode.DISABLED);
+            controller.replaceAnimationWithFade(AbstractFadeModifier.functionalFadeIn(10, (_, tick) -> tick), loc);
             asyncPool.execute(() -> {
                 try {
-                    Thread.sleep(1500);
+                    Thread.sleep(2000);
                     playerAnimationStates.put(uuid, false);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -96,18 +94,14 @@ public abstract class AbstractClientPlayerMixin extends Player implements Animat
         }
     }
 
-    @Inject(method = "tick()V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/AbstractClientPlayer;getDeltaMovement()Lnet/minecraft/world/phys/Vec3;", shift = At.Shift.AFTER))
-    private void tick(CallbackInfo ci) {
-        DiveinEvent.DIVEIN_WATER_EVENT.invoker().update(this, this.level(), base);
+    @Inject(method = "tick()V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/entity/ClientAvatarState;tick(Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/Vec3;)V", shift = At.Shift.AFTER))
+    public void tick(CallbackInfo ci) {
+        DiveinEvent.DIVEIN_WATER_EVENT.invoker().update(this, this.level(), this.controller);
     }
 
-    @Inject(method = "<init>", at = @At("TAIL"))
-    private void postInit(ClientLevel clientLevel, GameProfile gameProfile, CallbackInfo ci) {
-        @SuppressWarnings("UnstableApiUsage") var stack = ((IAnimatedPlayer) this).getAnimationStack();
-        //base.addModifier(createAdjustmentModifier(), 0);
-        base.addModifier(speedModifier, 0);
-        speedModifier.speed = 1.02f;
-        stack.addAnimLayer(1000, base);
+    @Unique
+    protected float calculateProgress(float f, int length) {
+        return (f + tickCount) / length;
     }
 
     @Unique
@@ -123,6 +117,7 @@ public abstract class AbstractClientPlayerMixin extends Player implements Animat
     }
 
     @Unique
+    @Deprecated
     private AdjustmentModifier createAdjustmentModifier() {
         var player = (Player)this;
         return new AdjustmentModifier((partName) -> {
